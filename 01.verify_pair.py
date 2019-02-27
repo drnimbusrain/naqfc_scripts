@@ -12,7 +12,6 @@ import os
 from glob import glob
 import sys
 sys.path.append('/data/aqf/patrickc/MONET/')
-#os.chdir('/data/aqf/patrickc/MONET/scripts/')
 
 import subprocess
 from distutils.spawn import find_executable
@@ -54,11 +53,11 @@ if __name__ == '__main__':
     parser.add_argument('-f', '--files',       help='string input model file directory/names', type=str, required=True)
 #    parser.add_argument('-d', '--startdates',  help='string input start date for pairing YYYY-MM-DD HH:MM:SS', type=str, required=True)
 #    parser.add_argument('-e', '--enddates',    help='string input end date for pairing YYYY-MM-DD HH:MM:SS', type=str, required=True)
-    parser.add_argument('-s', '--species',     help='string input for obs species-variables to pair',type=str,nargs='+', required=False, default=['OZONE','PM2.5'])
+    parser.add_argument('-s', '--species',     help='string input for obs species-variables to pair',type=str,nargs='+', required=False, default={'OZONE','PM2.5'})
     parser.add_argument('-o', '--output',      help='string output path for paired dataframe, stats, plots', type=str, required=False,default='./')
     parser.add_argument('-p', '--path',        help='string path to director of network observations', type=str, required=False, default='/data/aqf2/barryb/5xpm/AQS_DATA/')
-    parser.add_argument('-n', '--networks',    help='string input data network named: airnow, aqs', type=str, nargs='+',required=False, default=['airnow'])
-    parser.add_argument('-m', '--models',      help='input models: cmaq, fv3, hysplit (not-ready), or camx (not-ready)', type=str,nargs='+', required=False, default=['cmaq'])
+    parser.add_argument('-n', '--networks',    help='string input data network named: airnow, aqs', type=str, nargs='+',required=False, default={'airnow'})
+    parser.add_argument('-m', '--models',      help='input models: cmaq, fv3, hysplit (not-ready), or camx (not-ready)', type=str,nargs='+', required=False, default={'cmaq'})
     parser.add_argument('-i', '--interp',      help='xesmf interpolation scheme, bilinear, conservative, nearest_s2d, nearest_d2s, patch', type=str, required=False, default='bilinear')
     parser.add_argument('-v', '--verbose',     help='print debugging information', action='store_true', required=False)
     args = parser.parse_args()

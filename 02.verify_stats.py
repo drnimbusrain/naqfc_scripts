@@ -12,7 +12,6 @@ import os
 from glob import glob
 import sys
 sys.path.append('/data/aqf/patrickc/MONET/')
-#os.chdir('/data/aqf/patrickc/MONET/scripts/')
 
 import subprocess
 from distutils.spawn import find_executable
@@ -20,7 +19,7 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 import monet  
 from monet.util.tools import calc_8hr_rolling_max,calc_24hr_ave
-from monet.util.mystats import NO,NP,NOP,MO,MP,MdnO,MdnP,STDO,STDP,MB,NMB,NME,RMSE,IOA,R2 
+from monet.util.mystats import NO,NP,NOP,MO,MP,MdnO,MdnP,STDO,STDP,MB,NMB,NME_m,RMSE,IOA_m,R2 
 #from monet.plots import TaylorDiagram
 import pandas as pd
 import numpy as np
@@ -38,7 +37,7 @@ def  calc_r2(obs,mod):
 
 def  calc_ioa(obs,mod):
      """ Index of Agreement """
-     return IOA(obs,mod,axis=0)
+     return IOA_m(obs,mod,axis=0)
 
 def  calc_rmse(obs,mod):
      """ Root  Mean Square Error """
@@ -46,7 +45,7 @@ def  calc_rmse(obs,mod):
 
 def  calc_nme(obs,mod):
      """ Normalized Mean Error (%)"""
-     return NME(obs,mod,axis=0)
+     return NME_m(obs,mod,axis=0)
 
 def  calc_nmb(obs,mod):
      """ Normalized Mean Bias (%)"""
@@ -105,12 +104,14 @@ if __name__ == '__main__':
 
     parser = ArgumentParser(description='calculates statistics from paired file', formatter_class=ArgumentDefaultsHelpFormatter)
     
-    parser.add_argument('-f', '--files',       help='string input paired file directory/names', type=str, required=True)
-    parser.add_argument('-r', '--regulatory',  help='boolean set to True fore 8-hrmax  or 24-ave NAAQS regulatory calcs', type=bool, required=False, default=False)
-    parser.add_argument('-n', '--networks',    help='string input for networks to do stats',type=str,nargs='+', required=False, default=['airnow'])
-    parser.add_argument('-m', '--models',      help='string input models: cmaq, fv3, hysplit (not-ready), or camx (not-ready)', type=str,nargs='+', required=False, default=['cmaq']) 
-    parser.add_argument('-s', '--species',     help='string input for obs species-variables to create stats',type=str,nargs='+', required=False, default=['OZONE','PM2.5'])
-    parser.add_argument('-v', '--verbose',     help='print debugging information', action='store_true', required=False)
+    parser.add_argument('-f',   '--files',       help='string input paired file directory/names', type=str, required=True)
+    parser.add_argument('-r',   '--regulatory',  help='boolean set to True fore 8-hrmax  or 24-ave NAAQS regulatory calcs', type=bool, required=False, default=False)
+    parser.add_argument('-n',   '--networks',    help='string input for networks to do stats',type=str,nargs='+', required=False, default={'airnow'})
+    parser.add_argument('-m',   '--models',      help='string input models: cmaq, fv3, hysplit (not-ready), or camx (not-ready)', type=str,nargs='+', required=False, default={'cmaq'}) 
+    parser.add_argument('-s',   '--species',     help='string input for obs species-variables to create stats',type=str,nargs='+', required=False, default={'OZONE','PM2.5'})
+    parser.add_argument('-b',   '--subset_epa',  help='boolean set to True for subsetting by U.S. EPA region', type=bool, required=False, default=False)
+    parser.add_argument('-e',   '--epa_regions', help='string input for set U.S. EPA regions',type=str,nargs='+', required=False, default={'R1'})
+    parser.add_argument('-v',   '--verbose',     help='print debugging information', action='store_true', required=False)
     args = parser.parse_args()
 
     finput       = args.files
@@ -118,114 +119,125 @@ if __name__ == '__main__':
     networks     = args.networks
     models       = args.models
     species      = args.species
+    subset_epa   = args.subset_epa
+    epa_regions  = args.epa_regions
     verbose      = args.verbose
 
-
-    for xx in models:
+    for ee in epa_regions:
+     for xx in models:
 #reads paired network
-     for ii in networks:
-      if ii == 'airnow' and xx == 'cmaq':
-         df = pd.read_hdf(finput+'.hdf')
-         mapping_table = {'OZONE':'O3', 'PM2.5':'PM25_TOT', 'PM10':'PMC_TOT', 'CO':'CO', 'NO':'NO', 'NO2':'NO2', 'SO2':'SO2','NOX':'NOX','NO2Y':'NOY'}
-         sub_map = {i: mapping_table[i] for i in species if i in mapping_table}   
-         
-      if reg is True:
-         stats=open(finput+'_reg_stats_domain.txt','w')
-      else:
-         stats=open(finput+'_stats_domain.txt','w')
+      for ii in networks:
+       if ii == 'airnow' and xx == 'cmaq':
+          df = pd.read_hdf(finput)
+          mapping_table = {'OZONE':'O3', 'PM2.5':'PM25_TOT', 'PM10':'PMC_TOT', 'CO':'CO', 'NO':'NO', 'NO2':'NO2', 'SO2':'SO2','NOX':'NOX','NO2Y':'NOY'}
+          sub_map = {i: mapping_table[i] for i in species if i in mapping_table}   
+       
+       if subset_epa is True:
+          df.query('epa_region == '+'"'+ee+'"',inplace=True)
+       if reg is True and subset_epa is False:
+          stats=open(finput.replace('.hdf','_')+'reg_stats_domain.txt','w')
+       elif reg is True and subset_epa is True:
+          stats=open(finput.replace('.hdf','_')+'reg_stats_'+ee+'.txt','w')
+       elif reg is False and subset_epa is True:
+          stats=open(finput.replace('.hdf','_')+'stats_'+ee+'.txt','w')
+       else:
+          stats=open(finput.replace('.hdf','_')+'stats_domain.txt','w')
           
 #Converts OZONE, PM10, or PM2.5 dataframe to NAAQS regulatory values
-      for jj in species: 
-       df_replace = df.replace(0.0,np.nan) #Replace all values with exactly 0.0 (non-physical)
-       df_drop=df_replace.dropna(subset=[jj,sub_map.get(jj)]) #Drops all rows with obs species = NaN        
+       for jj in species: 
+        df_replace = df.replace(0.0,np.nan) #Replace all values with exactly 0.0 (non-physical)
+        df_drop=df_replace.dropna(subset=[jj,sub_map.get(jj)]) #Drops all rows with obs species = NaN        
        
-       if jj == 'OZONE' and reg is True:
-       	df2 = make_8hr_regulatory(df_drop,[jj,sub_map.get(jj)]).rename(index=str,columns={jj+'_y':jj,sub_map.get(jj)+'_y':sub_map.get(jj)}) 
-       elif jj == 'PM2.5' and reg is True:
-       	df2 = make_24hr_regulatory(df_drop,[jj,sub_map.get(jj)]).rename(index=str,columns={jj+'_y':jj,sub_map.get(jj)+'_y':sub_map.get(jj)})
-       elif jj == 'PM10' and reg is True:
-       	df2 = make_24hr_regulatory(df_drop,[jj,sub_map.get(jj)]).rename(index=str,columns={jj+'_y':jj,sub_map.get(jj)+'_y':sub_map.get(jj)})
-       else:
-       	df2=df_drop  
-        
-#Calculates domain-wide average statistics over entire file
-       if reg is True:
-       	stats=open(finput+'_reg_stats_domain.txt','a')
-       else:
-       	stats=open(finput+'_stats_domain.txt','a')
+        if jj == 'OZONE' and reg is True:
+       	 df2 = make_8hr_regulatory(df_drop,[jj,sub_map.get(jj)]).rename(index=str,columns={jj+'_y':jj,sub_map.get(jj)+'_y':sub_map.get(jj)}) 
+        elif jj == 'PM2.5' and reg is True:
+       	 df2 = make_24hr_regulatory(df_drop,[jj,sub_map.get(jj)]).rename(index=str,columns={jj+'_y':jj,sub_map.get(jj)+'_y':sub_map.get(jj)})
+        elif jj == 'PM10' and reg is True:
+       	 df2 = make_24hr_regulatory(df_drop,[jj,sub_map.get(jj)]).rename(index=str,columns={jj+'_y':jj,sub_map.get(jj)+'_y':sub_map.get(jj)})
+        else:
+         df2=df_drop  
+#Calculates average statistics over entire file time
+        if reg is True and subset_epa is False:
+       	 stats=open(finput.replace('.hdf','_')+'reg_stats_domain.txt','a')
+        elif reg is True and subset_epa is True:
+         stats=open(finput.replace('.hdf','_')+'reg_stats_'+ee+'.txt','a')
+        elif reg is False and subset_epa is True:
+         stats=open(finput.replace('.hdf','_')+'stats_'+ee+'.txt','a')
+        else:
+       	 stats=open(finput.replace('.hdf','_')+'stats_domain.txt','a')
          
-       print('---------------------------------')
-       print('Domain-wide statistics of ',jj,' and ',sub_map.get(jj),' pair over file period')
-       stats.write('Domain-wide statistics of '+jj+' and '+sub_map.get(jj)+' pair over file period'+'\n')
-       stats.write('---------------------------------'+'\n')
+        print('---------------------------------')
+        print('Statistics of ',jj,' and ',sub_map.get(jj),' pair over file period')
+        stats.write('Statistics of '+jj+' and '+sub_map.get(jj)+' pair over file period'+'\n')
+        stats.write('---------------------------------'+'\n')
 
-       obs_domain = df2[jj]
-       mod_domain = df2[sub_map.get(jj)]
+        obs_stats = df2[jj]
+        mod_stats = df2[sub_map.get(jj)]
         
-       no_domain=calc_NO(obs_domain,mod_domain)
-       print('Number of',jj,' Observations = ', no_domain)
-       stats.write('Number of '+jj+' Observations = '+str(no_domain)+'\n')
+        no_stats=calc_NO(obs_stats,mod_stats)
+        print('Number of',jj,' Observations = ', no_stats)
+        stats.write('Number of '+jj+' Observations = '+str(no_stats)+'\n')
         
-       np_domain=calc_NP(obs_domain,mod_domain)
-       print('Number of',sub_map.get(jj),' Predictions = ', np_domain)
-       stats.write('Number of '+sub_map.get(jj)+' Predictions = '+str(np_domain)+'\n')        
+        np_stats=calc_NP(obs_stats,mod_stats)
+        print('Number of',sub_map.get(jj),' Predictions = ', np_stats)
+        stats.write('Number of '+sub_map.get(jj)+' Predictions = '+str(np_stats)+'\n')        
 
-       nop_domain=calc_NOP(obs_domain,mod_domain)
-       print('Number of',jj,'/',sub_map.get(jj),' Observations/Prediction Pairs (#) = ', nop_domain)
-       stats.write('Number of '+jj+'/'+sub_map.get(jj)+' Observations/Prediction Pairs (#) = '+str(nop_domain)+'\n')        
+        nop_stats=calc_NOP(obs_stats,mod_stats)
+        print('Number of',jj,'/',sub_map.get(jj),' Observations/Prediction Pairs (#) = ', nop_stats)
+        stats.write('Number of '+jj+'/'+sub_map.get(jj)+' Observations/Prediction Pairs (#) = '+str(nop_stats)+'\n')        
 
-       mo_domain=calc_MO(obs_domain,mod_domain)
-       print('Mean of',jj,' Observations = ', mo_domain)
-       stats.write('Mean of '+jj+' Observations = '+str(mo_domain)+'\n') 
+        mo_stats=calc_MO(obs_stats,mod_stats)
+        print('Mean of',jj,' Observations = ', "{:8.2f}".format(mo_stats))
+        stats.write('Mean of '+jj+' Observations = '+str("{:8.2f}".format(mo_stats))+'\n') 
        
-       mp_domain=calc_MP(obs_domain,mod_domain)
-       print('Mean of',sub_map.get(jj),' Predictions = ', mp_domain)
-       stats.write('Mean of '+sub_map.get(jj)+' Predictions = '+str(mp_domain)+'\n')       
+        mp_stats=calc_MP(obs_stats,mod_stats)
+        print('Mean of',sub_map.get(jj),' Predictions = ', "{:8.2f}".format(mp_stats))
+        stats.write('Mean of '+sub_map.get(jj)+' Predictions = '+str("{:8.2f}".format(mp_stats))+'\n')       
  
-       mdno_domain=calc_MdnO(obs_domain,mod_domain)
-       print('Median of',jj,' Observations = ', mdno_domain)
-       stats.write('Median of '+jj+' Observations = '+str(mdno_domain)+'\n')        
+        mdno_stats=calc_MdnO(obs_stats,mod_stats)
+        print('Median of',jj,' Observations = ', "{:8.2f}".format(mdno_stats))
+        stats.write('Median of '+jj+' Observations = '+str("{:8.2f}".format(mdno_stats))+'\n')        
 
-       mdnp_domain=calc_MdnP(obs_domain,mod_domain)
-       print('Median of',sub_map.get(jj),' Predictions = ', mdnp_domain)
-       stats.write('Median of '+sub_map.get(jj)+' Predictions = '+str(mdnp_domain)+'\n')
+        mdnp_stats=calc_MdnP(obs_stats,mod_stats)
+        print('Median of',sub_map.get(jj),' Predictions = ', "{:8.2f}".format(mdnp_stats))
+        stats.write('Median of '+sub_map.get(jj)+' Predictions = '+str("{:8.2f}".format(mdnp_stats))+'\n')
 
-       stdo_domain=calc_stdo(obs_domain,mod_domain)
-       print('Standard deviation of',jj,' Observations = ', stdo_domain)
-       stats.write('Standard deviation of '+jj+' Observations = '+str(stdo_domain)+'\n')
+        stdo_stats=calc_stdo(obs_stats,mod_stats)
+        print('Standard deviation of',jj,' Observations = ', "{:8.2f}".format(stdo_stats))
+        stats.write('Standard deviation of '+jj+' Observations = '+str("{:8.2f}".format(stdo_stats))+'\n')
        
-       stdp_domain=calc_stdp(obs_domain,mod_domain)
-       print('Standard deviation of',sub_map.get(jj),' Predictions = ', stdp_domain)
-       stats.write('Standard deviation of '+sub_map.get(jj)+' Predictions = '+str(stdp_domain)+'\n')       
+        stdp_stats=calc_stdp(obs_stats,mod_stats)
+        print('Standard deviation of',sub_map.get(jj),' Predictions = ', "{:8.2f}".format(stdp_stats))
+        stats.write('Standard deviation of '+sub_map.get(jj)+' Predictions = '+str("{:8.2f}".format(stdp_stats))+'\n')       
 
-       mb_domain=calc_mb(obs_domain,mod_domain)
-       print('Mean Bias of ',sub_map.get(jj),'-',jj,' =  ', mb_domain)
-       stats.write('Mean Bias of '+sub_map.get(jj)+'-'+jj+' =  '+str(mb_domain)+'\n')        
+        mb_stats=calc_mb(obs_stats,mod_stats)
+        print('Mean Bias of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(mb_stats))
+        stats.write('Mean Bias of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(mb_stats))+'\n')        
 
-       nmb_domain=calc_nmb(obs_domain,mod_domain)
-       print('Normalized Mean Bias (%) of ',sub_map.get(jj),'-',jj,' =  ', nmb_domain)        
-       stats.write('Normalized Mean Bias (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str(nmb_domain)+'\n')
+        nmb_stats=calc_nmb(obs_stats,mod_stats)
+        print('Normalized Mean Bias (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nmb_stats))        
+        stats.write('Normalized Mean Bias (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nmb_stats))+'\n')
 
-       nme_domain=calc_nme(obs_domain,mod_domain)
-       print('Normalized Mean Error (%) of ',sub_map.get(jj),'-',jj,' =  ', nme_domain)
-       stats.write('Normalized Mean Error (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str(nme_domain)+'\n')
+        nme_stats=calc_nme(obs_stats,mod_stats)
+        print('Normalized Mean Error (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nme_stats))
+        stats.write('Normalized Mean Error (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nme_stats))+'\n')
 
-       rmse_domain=calc_rmse(obs_domain,mod_domain)
-       print('Root Mean Square Error of ',sub_map.get(jj),'-',jj,' =  ', rmse_domain)
-       stats.write('Root Mean Square Error of '+sub_map.get(jj)+'-'+jj+' =  '+str(rmse_domain)+'\n')
+        rmse_stats=calc_rmse(obs_stats,mod_stats)
+        print('Root Mean Square Error of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(rmse_stats))
+        stats.write('Root Mean Square Error of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(rmse_stats))+'\n')
 
-       ioa_domain=calc_ioa(obs_domain,mod_domain)
-       print('Index of Agreement of ',sub_map.get(jj),'-',jj,' =  ', ioa_domain)
-       stats.write('Index of Agreement of '+sub_map.get(jj)+'-'+jj+' =  '+str(ioa_domain)+'\n')
+        ioa_stats=calc_ioa(obs_stats,mod_stats)
+        print('Index of Agreement of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(ioa_stats))
+        stats.write('Index of Agreement of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(ioa_stats))+'\n')
 
-       r_domain=sqrt(calc_r2(obs_domain,mod_domain))
-       print('Pearsons Correlation Coefficient of ',sub_map.get(jj),'-',jj,' =  ', r_domain)
-       stats.write('Pearsons Correlation Coefficient of '+sub_map.get(jj)+'-'+jj+' =  '+str(r_domain)+'\n')
+        r_stats=sqrt(calc_r2(obs_stats,mod_stats))
+        print('Pearsons Correlation Coefficient of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(r_stats))
+        stats.write('Pearsons Correlation Coefficient of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(r_stats))+'\n')
 
-       print('Statistics done!')
-       print('---------------------------------')
-       stats.write('---------------------------------'+'\n')
-       stats.close()
+        print('Statistics done!')
+        print('---------------------------------')
+        stats.write('---------------------------------'+'\n')
+        stats.close()
 
 
 
