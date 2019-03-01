@@ -20,16 +20,11 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import monet  
 from monet.util.tools import calc_8hr_rolling_max,calc_24hr_ave
 from monet.util.mystats import NO,NP,NOP,MO,MP,MdnO,MdnP,STDO,STDP,MB,NMB,NME_m,RMSE,IOA_m,R2 
-#from monet.plots import TaylorDiagram
 import pandas as pd
 import numpy as np
 from numpy import sqrt
 
 #Define all statistics and statistical plots desired
-
-#def  plot_taylor(finput,verbose=False):
-#     dset=monet.models.cmaq.open_mfdataset(finput)
-#     return dset
 
 def  calc_r2(obs,mod):
      """ Coefficient of Determination (unit squared) """
@@ -106,17 +101,21 @@ if __name__ == '__main__':
     
     parser.add_argument('-f',   '--files',       help='string input paired file directory/names', type=str, required=True)
     parser.add_argument('-r',   '--regulatory',  help='boolean set to True fore 8-hrmax  or 24-ave NAAQS regulatory calcs', type=bool, required=False, default=False)
-    parser.add_argument('-n',   '--networks',    help='string input for networks to do stats',type=str,nargs='+', required=False, default={'airnow'})
-    parser.add_argument('-m',   '--models',      help='string input models: cmaq, fv3, hysplit (not-ready), or camx (not-ready)', type=str,nargs='+', required=False, default={'cmaq'}) 
-    parser.add_argument('-s',   '--species',     help='string input for obs species-variables to create stats',type=str,nargs='+', required=False, default={'OZONE','PM2.5'})
+    parser.add_argument('-sd',  '--startdate',   help='string start date to isolate periods for statistics YYYY-MM-DD HH:MM:SS', type=str, required=False, default=None)
+    parser.add_argument('-ed',  '--enddate',     help='string end date to isolate periods for statistics YYYY-MM-DD HH:MM:SS', type=str, required=False, default=None)
+    parser.add_argument('-n',   '--networks',    help='string/list input for networks to do stats',type=str,nargs='+', required=False, default={'airnow'})
+    parser.add_argument('-m',   '--models',      help='string/list input models: cmaq, fv3, hysplit (not-ready), or camx (not-ready)', type=str,nargs='+', required=False, default={'cmaq'}) 
+    parser.add_argument('-s',   '--species',     help='string/list input for obs species-variables to create stats',type=str,nargs='+', required=False, default={'OZONE','PM2.5'})
     parser.add_argument('-b',   '--subset_epa',  help='boolean set to True for subsetting by U.S. EPA region', type=bool, required=False, default=False)
-    parser.add_argument('-e',   '--epa_regions', help='string input for set U.S. EPA regions',type=str,nargs='+', required=False, default={'R1'})
+    parser.add_argument('-e',   '--epa_regions', help='string/list input for set U.S. EPA regions',type=str,nargs='+', required=False, default={'R1'})
     parser.add_argument('-v',   '--verbose',     help='print debugging information', action='store_true', required=False)
     args = parser.parse_args()
 
     finput       = args.files
     reg          = args.regulatory
     networks     = args.networks
+    startdate    = args.startdate
+    enddate      = args.enddate
     models       = args.models
     species      = args.species
     subset_epa   = args.subset_epa
@@ -131,18 +130,29 @@ if __name__ == '__main__':
           df = pd.read_hdf(finput)
           mapping_table = {'OZONE':'O3', 'PM2.5':'PM25_TOT', 'PM10':'PMC_TOT', 'CO':'CO', 'NO':'NO', 'NO2':'NO2', 'SO2':'SO2','NOX':'NOX','NO2Y':'NOY'}
           sub_map = {i: mapping_table[i] for i in species if i in mapping_table}   
-       
+#subsetting data for dates, regulatory calc, and/or epa regions    
+       if startdate != None and enddate != None:
+          mask = (df['time'] >= startdate) & (df['time'] <= enddate)
+          df =df.loc[mask]
+          import datetime
+          startdatename_obj = datetime.datetime.strptime(startdate, '%Y-%m-%d %H:%M:%S')
+          enddatename_obj   = datetime.datetime.strptime(enddate, '%Y-%m-%d %H:%M:%S')
+          startdatename = str(datetime.datetime.strftime(startdatename_obj,'%Y-%m-%d_%H'))
+          enddatename = str(datetime.datetime.strftime(enddatename_obj,'%Y-%m-%d_%H'))
+       else:
+          startdatename='Entire'
+          enddatename  ='Entire'
+
        if subset_epa is True:
           df.query('epa_region == '+'"'+ee+'"',inplace=True)
        if reg is True and subset_epa is False:
-          stats=open(finput.replace('.hdf','_')+'reg_stats_domain.txt','w')
+          stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_reg_stats_domain.txt','w')
        elif reg is True and subset_epa is True:
-          stats=open(finput.replace('.hdf','_')+'reg_stats_'+ee+'.txt','w')
+          stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_reg_stats_'+ee+'.txt','w')
        elif reg is False and subset_epa is True:
-          stats=open(finput.replace('.hdf','_')+'stats_'+ee+'.txt','w')
+          stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_stats_'+ee+'.txt','w')
        else:
-          stats=open(finput.replace('.hdf','_')+'stats_domain.txt','w')
-          
+          stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_stats_domain.txt','w')          
 #Converts OZONE, PM10, or PM2.5 dataframe to NAAQS regulatory values
        for jj in species: 
         df_replace = df.replace(0.0,np.nan) #Replace all values with exactly 0.0 (non-physical)
@@ -158,17 +168,17 @@ if __name__ == '__main__':
          df2=df_drop  
 #Calculates average statistics over entire file time
         if reg is True and subset_epa is False:
-       	 stats=open(finput.replace('.hdf','_')+'reg_stats_domain.txt','a')
+       	 stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_reg_stats_domain.txt','a')
         elif reg is True and subset_epa is True:
-         stats=open(finput.replace('.hdf','_')+'reg_stats_'+ee+'.txt','a')
+         stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_reg_stats_'+ee+'.txt','a')
         elif reg is False and subset_epa is True:
-         stats=open(finput.replace('.hdf','_')+'stats_'+ee+'.txt','a')
+         stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_stats_'+ee+'.txt','a')
         else:
-       	 stats=open(finput.replace('.hdf','_')+'stats_domain.txt','a')
+       	 stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_stats_domain.txt','a')
          
         print('---------------------------------')
-        print('Statistics of ',jj,' and ',sub_map.get(jj),' pair over file period')
-        stats.write('Statistics of '+jj+' and '+sub_map.get(jj)+' pair over file period'+'\n')
+        print('Statistics of ',jj,' and ',sub_map.get(jj),' pair over ', startdatename,' to ', enddatename)
+        stats.write('Statistics of '+jj+' and '+sub_map.get(jj)+' pair over file period '+startdatename+ ' to '+enddatename+'\n')
         stats.write('---------------------------------'+'\n')
 
         obs_stats = df2[jj]
