@@ -141,7 +141,7 @@ if __name__ == '__main__':
           enddatename = str(datetime.datetime.strftime(enddatename_obj,'%Y-%m-%d_%H'))
        else:
           startdatename='Entire'
-          enddatename  ='Entire'
+          enddatename  ='Period'
 
        if subset_epa is True:
           df.query('epa_region == '+'"'+ee+'"',inplace=True)
