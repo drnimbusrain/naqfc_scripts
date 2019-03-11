@@ -18,8 +18,8 @@ from distutils.spawn import find_executable
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 import monet  
-from monet.util.tools import calc_8hr_rolling_max,calc_24hr_ave
-from monet.util.mystats import NO,NP,NOP,MO,MP,MdnO,MdnP,STDO,STDP,MB,NMB,NME_m,RMSE,IOA_m,R2 
+from monet.util.tools import calc_8hr_rolling_max,calc_24hr_ave,get_relhum
+from monet.util.mystats import NO,NP,NOP,MO,MP,MdnO,MdnP,STDO,STDP,MB,WDMB_m,NMB,WDNMB_m,NMB_TEMP,NME_m,NME_m_TEMP,WDME_m,RMSE,WDRMSE_m,IOA_m,WDIOA_m,R2 
 import pandas as pd
 import numpy as np
 from numpy import sqrt
@@ -30,21 +30,49 @@ def  calc_r2(obs,mod):
      """ Coefficient of Determination (unit squared) """
      return R2(obs,mod,axis=None)
 
+def  calc_ioa_wd(obs,mod):
+     """ Wind Direction Index of Agreement """
+     return WDIOA_m(obs,mod,axis=0)
+
 def  calc_ioa(obs,mod):
      """ Index of Agreement """
      return IOA_m(obs,mod,axis=0)
+
+def  calc_rmse_wd(obs,mod):
+     """ Wind Direction Root  Mean Square Error """
+     return WDRMSE_m(obs,mod,axis=0)
 
 def  calc_rmse(obs,mod):
      """ Root  Mean Square Error """
      return RMSE(obs,mod,axis=0)
 
+def  calc_wdme(obs,mod):
+     """ Wind Direction Mean Gross Error """
+     return WDME_m(obs,mod,axis=0)
+
+def  calc_nme_temp(obs,mod):
+     """ Temperature (C) Normalized Mean Error (%)"""
+     return NME_m_TEMP(obs,mod,axis=0)
+
 def  calc_nme(obs,mod):
      """ Normalized Mean Error (%)"""
      return NME_m(obs,mod,axis=0)
 
+def  calc_nmb_wd(obs,mod):
+     """ Wind Direction Temperature (C) Normalized Mean Bias (%)"""
+     return WDNMB_m(obs,mod,axis=0)
+
+def  calc_nmb_temp(obs,mod):
+     """ Temperature (C) Normalized Mean Bias (%)"""
+     return NMB_TEMP(obs,mod,axis=0)
+
 def  calc_nmb(obs,mod):
      """ Normalized Mean Bias (%)"""
      return NMB(obs,mod,axis=0)
+
+def  calc_mb_wd(obs,mod):
+     """ Wind Direction Mean Bias """
+     return WDMB_m(obs,mod,axis=0)
 
 def  calc_mb(obs,mod):
      """ Mean Bias """
@@ -128,7 +156,7 @@ if __name__ == '__main__':
       for ii in networks:
        if ii == 'airnow' and xx == 'cmaq':
           df = pd.read_hdf(finput)
-          mapping_table = {'OZONE':'O3', 'PM2.5':'PM25_TOT', 'PM10':'PMC_TOT', 'CO':'CO', 'NO':'NO', 'NO2':'NO2', 'SO2':'SO2','NOX':'NOX','NO2Y':'NOY'}
+          mapping_table = {'OZONE':'O3', 'PM2.5':'PM25_TOT', 'PM10':'PMC_TOT', 'CO':'CO', 'NO':'NO', 'NO2':'NO2', 'SO2':'SO2','NOX':'NOX','NO2Y':'NOY','TEMP':'TEMP2','WS':'WSPD10','WD':'WDIR10','SRAD':'GSW','BARPR':'PRSFC','PRECIP':'RT','RHUM':'Q2'}
           sub_map = {i: mapping_table[i] for i in species if i in mapping_table}   
 #subsetting data for dates, regulatory calc, and/or epa regions    
        if startdate != None and enddate != None:
@@ -155,7 +183,7 @@ if __name__ == '__main__':
           stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_stats_domain.txt','w')          
 #Converts OZONE, PM10, or PM2.5 dataframe to NAAQS regulatory values
        for jj in species: 
-        df_replace = df.replace(0.0,np.nan) #Replace all values with exactly 0.0 (non-physical)
+        df_replace = df.replace(0.0,np.nan) #Replace all values with exactly 0.0 
         df_drop=df_replace.dropna(subset=[jj,sub_map.get(jj)]) #Drops all rows with obs species = NaN        
        
         if jj == 'OZONE' and reg is True:
@@ -166,6 +194,21 @@ if __name__ == '__main__':
        	 df2 = make_24hr_regulatory(df_drop,[jj,sub_map.get(jj)]).rename(index=str,columns={jj+'_y':jj,sub_map.get(jj)+'_y':sub_map.get(jj)})
         else:
          df2=df_drop  
+#Convert airnow met variable if necessary:
+        if jj == 'WS':
+         df2.loc[:,'WS']=df2.loc[:,'WS']*0.514  #convert obs knots-->m/s
+        elif jj == 'BARPR':
+         df2.loc[:,'BARPR']=df2.loc[:,'BARPR']*100.0 #convert obs millibars-->Pascals
+        elif jj == 'PRECIP':
+         df2.loc[:,'PRECIP']=df2.loc[:,'PRECIP']*0.1 #convert obs mm-->cm
+        elif jj == 'TEMP':
+         df2.loc[:,'TEMP2'] = df2.loc[:,'TEMP2']-273.16 #convert model K-->C
+        elif jj == 'RHUM':
+         #convert model mixing ratio to relative humidity
+         df2.loc[:,'Q2'] = get_relhum(df2.loc[:,'TEMP2'],df2.loc[:,'PRSFC'],df2.loc[:,'Q2'])
+         df2.rename(index=str,columns={"Q2": "RH_mod"},inplace=True)
+        else:
+         df2=df2  
 #Calculates average statistics over entire file time
         if reg is True and subset_epa is False:
        	 stats=open(finput.replace('.hdf','_')+startdatename+'_'+enddatename+'_reg_stats_domain.txt','a')
@@ -182,8 +225,10 @@ if __name__ == '__main__':
         stats.write('---------------------------------'+'\n')
 
         obs_stats = df2[jj]
-        mod_stats = df2[sub_map.get(jj)]
-        
+        if jj == 'RHUM':
+         mod_stats = df2['RH_mod']
+        else:
+         mod_stats = df2[sub_map.get(jj)]
         no_stats=calc_NO(obs_stats,mod_stats)
         print('Number of',jj,' Observations = ', no_stats)
         stats.write('Number of '+jj+' Observations = '+str(no_stats)+'\n')
@@ -220,25 +265,58 @@ if __name__ == '__main__':
         print('Standard deviation of',sub_map.get(jj),' Predictions = ', "{:8.2f}".format(stdp_stats))
         stats.write('Standard deviation of '+sub_map.get(jj)+' Predictions = '+str("{:8.2f}".format(stdp_stats))+'\n')       
 
-        mb_stats=calc_mb(obs_stats,mod_stats)
-        print('Mean Bias of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(mb_stats))
-        stats.write('Mean Bias of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(mb_stats))+'\n')        
-
-        nmb_stats=calc_nmb(obs_stats,mod_stats)
-        print('Normalized Mean Bias (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nmb_stats))        
-        stats.write('Normalized Mean Bias (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nmb_stats))+'\n')
-
-        nme_stats=calc_nme(obs_stats,mod_stats)
-        print('Normalized Mean Error (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nme_stats))
-        stats.write('Normalized Mean Error (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nme_stats))+'\n')
-
-        rmse_stats=calc_rmse(obs_stats,mod_stats)
-        print('Root Mean Square Error of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(rmse_stats))
-        stats.write('Root Mean Square Error of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(rmse_stats))+'\n')
-
-        ioa_stats=calc_ioa(obs_stats,mod_stats)
-        print('Index of Agreement of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(ioa_stats))
-        stats.write('Index of Agreement of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(ioa_stats))+'\n')
+        if jj == 'WD':
+         mb_stats=calc_mb_wd(obs_stats,mod_stats)
+         print('Wind Direction Mean Bias of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(mb_stats))
+         stats.write('Wind Direction Mean Bias of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(mb_stats))+'\n')
+        else:
+         mb_stats=calc_mb(obs_stats,mod_stats)
+         print('Mean Bias of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(mb_stats))
+         stats.write('Mean Bias of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(mb_stats))+'\n')        
+        
+        if jj == 'TEMP':
+         nmb_stats=calc_nmb_temp(obs_stats,mod_stats)
+         print('Temperature Normalized Mean Bias (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nmb_stats))        
+         stats.write('Temperature Normalized Mean Bias (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nmb_stats))+'\n')
+        elif jj == 'WD':
+         nmb_stats=calc_nmb_wd(obs_stats,mod_stats)
+         print('Wind Direction Normalized Mean Bias (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nmb_stats))
+         stats.write('Wind Direction Normalized Mean Bias (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nmb_stats))+'\n')
+        else:
+         nmb_stats=calc_nmb(obs_stats,mod_stats)
+         print('Normalized Mean Bias (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nmb_stats))
+         stats.write('Normalized Mean Bias (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nmb_stats))+'\n')
+        
+        if jj == 'TEMP':
+         nme_stats=calc_nme_temp(obs_stats,mod_stats)
+         print('Temperature Normalized Mean Error (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nme_stats))
+         stats.write('Temperature Normalized Mean Error (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nme_stats))+'\n')
+        elif jj == 'WD':
+         wdme_stats=calc_wdme(obs_stats,mod_stats)
+         print('Wind Direction Mean Gross Error of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(wdme_stats))
+         stats.write('Wind Direction Mean Gross Error (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(wdme_stats))+'\n')
+        else:
+         nme_stats=calc_nme(obs_stats,mod_stats)
+         print('Normalized Mean Error (%) of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(nme_stats))
+         stats.write('Normalized Mean Error (%) of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(nme_stats))+'\n')
+        
+        if jj == 'WD':
+         rmse_stats=calc_rmse_wd(obs_stats,mod_stats)
+         print('Wind Direction Root Mean Square Error of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(rmse_stats))
+         stats.write('Wind Direction Root Mean Square Error of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(rmse_stats))+'\n')
+        else:
+         rmse_stats=calc_rmse(obs_stats,mod_stats)
+         print('Root Mean Square Error of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(rmse_stats))
+         stats.write('Root Mean Square Error of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(rmse_stats))+'\n')
+        
+        if jj == 'WD':
+         ioa_stats=calc_ioa_wd(obs_stats,mod_stats)
+         print('Wind Direction Index of Agreement of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(ioa_stats))
+         stats.write('Wind Direction Index of Agreement of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(ioa_stats))+'\n')
+        else:
+         ioa_stats=calc_ioa(obs_stats,mod_stats)
+         print('Index of Agreement of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(ioa_stats))
+         stats.write('Index of Agreement of '+sub_map.get(jj)+'-'+jj+' =  '+str("{:8.2f}".format(ioa_stats))+'\n')
 
         r_stats=sqrt(calc_r2(obs_stats,mod_stats))
         print('Pearsons Correlation Coefficient of ',sub_map.get(jj),'-',jj,' =  ', "{:8.2f}".format(r_stats))
