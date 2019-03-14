@@ -50,31 +50,6 @@ def load_paired_data(fname):
     return pd.read_hdf(fname)
 
 
-def make_spatial_bias_plot(df,
-                           out_name,
-                           col1='aod_550nm',
-                           col2='pm25aod550',
-                           date=None,
-                           **kwargs):
-    ax = monet.plots.sp_scatter_bias(df, col1=col1, col2=col2, **kwargs)
-    # date = df.time.min()
-    date = pd.Timestamp(date)
-    plt.title(date.strftime('time=%Y/%m/%d %H:00 | FV3 - AERONET (AOD)'))
-    plt.tight_layout(pad=0)
-    savename = "{}.{}".format(out_name, date.strftime('sb.%Y%m%d%H.jpg'))
-    print(savename)
-    monet.plots.savefig(savename, bbox_inches='tight', dpi=100, decorate=True)
-    plt.close()
-
-
-def make_taylor_diagram(df, col1, col2, savename):
-    dia = monet.plots.plots.taylordiagram(df, col1=col1, col2=col2)
-    date = df.time.min()
-    name = "{}.{}".format(savename, date.strftime('tyr.%Y%m%d%H.jpg'))
-    print(name)
-    monet.plots.savefig(name, bbox_inches='tight', dpi=100, decorate=True)
-
-
 def make_plots(df, variable, obs_variable, out_name):
     # loop over varaible list
     print(variable, obs_variable)
@@ -82,31 +57,8 @@ def make_plots(df, variable, obs_variable, out_name):
         # loop over time
         if 'global' in out_name:
             name = "{}.{}".format(out_name, v)
-            make_boxplot_giorgi(df, name, col1=obsv, col2=v)
-            make_taylor_diagram(df, col1=obsv, col2=v, savename=name)
-            print(df.keys())
             odf = df.dropna(subset=[obsv, v])
-        for t in odf.time.unique():
-            date = pd.Timestamp(t)
-            print(
-                ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-            print('Creating Plot:', v, 'at time:', date)
-            print(
-                ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-            odf = odf.loc[df.time ==
-                          date, ['time', 'latitude', 'longitude', obsv, v]]
-            name = "{}.{}".format(out_name, v)
-            print(t)
-            if ~odf.empty:
-                make_spatial_bias_plot(
-                    odf,
-                    name,
-                    col1=obsv,
-                    col2=v,
-                    date=t,
-                    cmap='RdBu_r',
-                    edgecolor='k',
-                    linewidth=.8)
+            make_boxplot_giorgi(df, name, col1=obsv, col2=v)
 
 
 def make_boxplot_giorgi(
@@ -129,12 +81,13 @@ def make_boxplot_giorgi(
     dfa.rename({col1: 'AOD'}, axis=1, inplace=True)
     dfm.rename({col2: 'AOD'}, axis=1, inplace=True)
     dfn = pd.concat([dfa, dfm], ignore_index=True)
-    f, ax = plt.subplots(figsize=(12, 7))
+    f, ax = plt.subplots(figsize=(10, 5))
     sns.boxplot(ax=ax, x='GIORGI_ACRO', y='AOD', hue='Legend', data=dfn)
     sns.despine()
+    plt.legend(loc=2)
     plt.tight_layout(pad=0)
     name = "{}.bp.jpg".format(savename)
-    monet.plots.savefig(name, bbox_inches='tight', dpi=100, decorate=True)
+    monet.plots.savefig(name, dpi=100, loc=3, decorate=True)
     plt.close()
 
 
