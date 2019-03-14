@@ -19,7 +19,7 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 import monet  
 from monet.util.tools import calc_8hr_rolling_max,calc_24hr_ave,get_relhum
-from monet.util.mystats import NO,NP,NOP,MO,MP,MdnO,MdnP,STDO,STDP,MB,WDMB_m,NMB,WDNMB_m,NMB_TEMP,NME_m,NME_m_TEMP,WDME_m,RMSE,WDRMSE_m,IOA_m,WDIOA_m,R2 
+from monet.util.mystats import NO,NP,NOP,MO,MP,MdnO,MdnP,STDO,STDP,MB,WDMB_m,NMB,WDNMB_m,NMB_ABS,NME_m,NME_m_ABS,WDME_m,RMSE,WDRMSE_m,IOA_m,WDIOA_m,R2 
 import pandas as pd
 import numpy as np
 from numpy import sqrt
@@ -52,7 +52,7 @@ def  calc_wdme(obs,mod):
 
 def  calc_nme_temp(obs,mod):
      """ Temperature (C) Normalized Mean Error (%)"""
-     return NME_m_TEMP(obs,mod,axis=0)
+     return NME_m_ABS(obs,mod,axis=0)
 
 def  calc_nme(obs,mod):
      """ Normalized Mean Error (%)"""
@@ -64,7 +64,7 @@ def  calc_nmb_wd(obs,mod):
 
 def  calc_nmb_temp(obs,mod):
      """ Temperature (C) Normalized Mean Bias (%)"""
-     return NMB_TEMP(obs,mod,axis=0)
+     return NMB_ABS(obs,mod,axis=0)
 
 def  calc_nmb(obs,mod):
      """ Normalized Mean Bias (%)"""
@@ -197,8 +197,9 @@ if __name__ == '__main__':
 #Convert airnow met variable if necessary:
         if jj == 'WS':
          df2.loc[:,'WS']=df2.loc[:,'WS']*0.514  #convert obs knots-->m/s
+         #df2.query('WS > 0.2',inplace=True)  #Filter out calm WS obs (< 0.2 m/s), should not be trusted--creates artificially larger postive  model bias
         elif jj == 'BARPR':
-         df2.loc[:,'BARPR']=df2.loc[:,'BARPR']*100.0 #convert obs millibars-->Pascals
+         df2.loc[:,'PRSFC']=df2.loc[:,'PRSFC']*0.01 #convert model Pascals-->millibars
         elif jj == 'PRECIP':
          df2.loc[:,'PRECIP']=df2.loc[:,'PRECIP']*0.1 #convert obs mm-->cm
         elif jj == 'TEMP':
